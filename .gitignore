@@ -1,0 +1,8 @@
+.DS_Store
+user_data/config.json
+user_data/tradesv3.sqlite*
+user_data/logs/
+user_data/backtest_results/
+user_data/hyperopt_results/
+user_data/data/
+user_data/notebooks/.ipynb_checkpoints/

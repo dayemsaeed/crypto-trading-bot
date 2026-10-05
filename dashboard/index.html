@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trendfollow-bot</title>
+<style>
+  :root {
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5;
+    --good: #0ca30c;
+    --critical: #d03b3b;
+    --warning: #fab219;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    padding: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  header .right { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.on { background: var(--good); } .dot.off { background: var(--critical); }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .tile .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .tile .value { font-size: 24px; font-weight: 600; }
+  .tile .delta { font-size: 12px; margin-top: 4px; color: var(--ink-2); }
+  .up { color: var(--good); } .down { color: var(--critical); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 12px; }
+
+  .chart-wrap { position: relative; }
+  #tooltip {
+    position: absolute; display: none; pointer-events: none;
+    background: var(--page); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px; font-size: 12px; white-space: nowrap; z-index: 2;
+  }
+  #tooltip .tt-val { font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--muted); font-size: 12px; font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; }
+  th.num { text-align: right; }
+
+  .pairs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .pair { border: 1px solid var(--grid); border-radius: 8px; padding: 10px 12px; }
+  .pair .head { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .pair .name { font-weight: 600; }
+  .pair .score { color: var(--muted); font-size: 12px; }
+  .pair .score.ready { color: var(--good); font-weight: 600; }
+  .cond { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); padding: 2px 0; }
+  .cond.met { color: var(--ink-2); }
+  .cond .mark { width: 14px; text-align: center; font-weight: 700; }
+  .cond.met .mark { color: var(--good); }
+  .empty { color: var(--muted); padding: 8px; }
+  #err { color: var(--warning); font-size: 13px; margin-bottom: 12px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>trendfollow-bot</h1>
+  <span class="sub">Binance spot &middot; 4h &middot; dry-run</span>
+  <span class="right"><a href="/" style="color: var(--series-1); text-decoration: none;">Open FreqUI &rarr;</a>
+  &nbsp;&nbsp;<span id="status"><span class="dot off"></span>connecting&hellip;</span></span>
+</header>
+<div id="err"></div>
+
+<div class="tiles">
+  <div class="tile"><div class="label">Wallet</div><div class="value" id="t-balance">&ndash;</div><div class="delta" id="t-balance-d"></div></div>
+  <div class="tile"><div class="label">Total profit (closed)</div><div class="value" id="t-profit">&ndash;</div><div class="delta" id="t-profit-d"></div></div>
+  <div class="tile"><div class="label">Trades</div><div class="value" id="t-trades">&ndash;</div><div class="delta" id="t-trades-d"></div></div>
+  <div class="tile"><div class="label">Open positions</div><div class="value" id="t-open">&ndash;</div><div class="delta" id="t-open-d"></div></div>
+</div>
+
+<div class="card">
+  <h2>Cumulative profit — last 90 days (USDT)</h2>
+  <div class="chart-wrap">
+    <svg id="chart" width="100%" height="180" viewBox="0 0 1000 180" preserveAspectRatio="none"></svg>
+    <div id="tooltip"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Entry signal proximity — conditions met per pair (needs all 5)</h2>
+  <div class="pairs" id="pairs"><div class="empty">loading&hellip;</div></div>
+</div>
+
+<div class="card">
+  <h2>Open trades</h2>
+  <div id="open-trades"><div class="empty">none</div></div>
+</div>
+
+<div class="card">
+  <h2>Recent closed trades</h2>
+  <div id="closed-trades"><div class="empty">none yet</div></div>
+</div>
+
+<script>
+const API = "/api/v1";
+// ponytail: local-only dashboard, creds mirror user_data/config.json
+const USER = "freqtrader", PASS = "d10ceac6e9605d5f";
+const RSI_ENTRY = 49; // keep in sync with user_data/strategies/TrendFollowStrategy.json
+
+let token = null;
+
+async function login() {
+  const r = await fetch(API + "/token/login", {
+    method: "POST",
+    headers: { Authorization: "Basic " + btoa(USER + ":" + PASS) },
+  });
+  if (!r.ok) throw new Error("login failed: " + r.status);
+  token = (await r.json()).access_token;
+}
+
+async function get(path) {
+  let r = await fetch(API + path, { headers: { Authorization: "Bearer " + token } });
+  if (r.status === 401) { await login(); r = await fetch(API + path, { headers: { Authorization: "Bearer " + token } }); }
+  if (!r.ok) throw new Error(path + " -> " + r.status);
+  return r.json();
+}
+
+const fmt = (n, d = 2) => Number(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const cls = (n) => (n > 0 ? "up" : n < 0 ? "down" : "");
+const sign = (n) => (n > 0 ? "+" : "");
+
+function tiles(balance, profit, statusList) {
+  const total = balance.total ?? 0;
+  document.getElementById("t-balance").textContent = fmt(total) + " " + (balance.stake ?? "USDT");
+  document.getElementById("t-balance-d").textContent = "starting 1000.00";
+
+  const abs = profit.profit_closed_coin ?? 0;
+  const pct = profit.profit_closed_percent ?? 0;
+  const pEl = document.getElementById("t-profit");
+  pEl.textContent = sign(abs) + fmt(abs) + " USDT";
+  pEl.className = "value " + cls(abs);
+  document.getElementById("t-profit-d").textContent = sign(pct) + fmt(pct) + "%";
+
+  const wins = profit.winning_trades ?? 0, losses = profit.losing_trades ?? 0;
+  document.getElementById("t-trades").textContent = profit.trade_count ?? 0;
+  document.getElementById("t-trades-d").textContent = wins + " won / " + losses + " lost";
+
+  document.getElementById("t-open").textContent = statusList.length;
+  document.getElementById("t-open-d").textContent = "max 4";
+}
+
+let chartPts = [];
+function chart(daily) {
+  const rows = [...daily.data].sort((a, b) => a.date.localeCompare(b.date));
+  let cum = 0;
+  chartPts = rows.map((r) => ({ date: r.date, v: (cum += r.abs_profit) }));
+  const svg = document.getElementById("chart");
+  if (!chartPts.length) { svg.innerHTML = ""; return; }
+
+  const W = 1000, H = 180, PAD = 10;
+  const vs = chartPts.map((p) => p.v);
+  const min = Math.min(0, ...vs), max = Math.max(0, ...vs, 0.01);
+  const x = (i) => PAD + (i * (W - 2 * PAD)) / Math.max(1, chartPts.length - 1);
+  const y = (v) => H - PAD - ((v - min) * (H - 2 * PAD)) / (max - min);
+  chartPts.forEach((p, i) => { p.x = x(i); p.y = y(p.v); });
+
+  const line = chartPts.map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + " " + p.y.toFixed(1)).join(" ");
+  svg.innerHTML =
+    `<line x1="${PAD}" y1="${y(0)}" x2="${W - PAD}" y2="${y(0)}" stroke="var(--baseline)" stroke-width="1"/>` +
+    `<path d="${line}" fill="none" stroke="var(--series-1)" stroke-width="2" vector-effect="non-scaling-stroke"/>` +
+    `<line id="xhair" y1="${PAD}" y2="${H - PAD}" stroke="var(--grid)" stroke-width="1" visibility="hidden"/>` +
+    `<circle id="xdot" r="4" fill="var(--series-1)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>`;
+}
+
+(function hookTooltip() {
+  const wrap = document.querySelector(".chart-wrap");
+  const tip = document.getElementById("tooltip");
+  wrap.addEventListener("mousemove", (e) => {
+    if (!chartPts.length) return;
+    const svg = document.getElementById("chart");
+    const box = svg.getBoundingClientRect();
+    const fx = ((e.clientX - box.left) / box.width) * 1000;
+    let best = chartPts[0];
+    for (const p of chartPts) if (Math.abs(p.x - fx) < Math.abs(best.x - fx)) best = p;
+    const xh = document.getElementById("xhair"), xd = document.getElementById("xdot");
+    if (!xh) return;
+    xh.setAttribute("x1", best.x); xh.setAttribute("x2", best.x); xh.setAttribute("visibility", "visible");
+    xd.setAttribute("cx", best.x); xd.setAttribute("cy", best.y); xd.setAttribute("visibility", "visible");
+    tip.style.display = "block";
+    tip.innerHTML = best.date + ` &middot; <span class="tt-val ${cls(best.v)}">${sign(best.v)}${fmt(best.v)} USDT</span>`;
+    const px = (best.x / 1000) * box.width;
+    tip.style.left = Math.min(px + 12, box.width - tip.offsetWidth - 4) + "px";
+    tip.style.top = "8px";
+  });
+  wrap.addEventListener("mouseleave", () => {
+    tip.style.display = "none";
+    for (const id of ["xhair", "xdot"]) document.getElementById(id)?.setAttribute("visibility", "hidden");
+  });
+})();
+
+async function pairPanel(whitelist) {
+  const el = document.getElementById("pairs");
+  const cards = await Promise.all(whitelist.map(async (pair) => {
+    try {
+      const pc = await get(`/pair_candles?pair=${encodeURIComponent(pair)}&timeframe=4h&limit=2`);
+      const col = Object.fromEntries(pc.columns.map((c, i) => [c, i]));
+      const rows = pc.data;
+      const last = rows[rows.length - 1], prev = rows[rows.length - 2] ?? last;
+      const g = (row, name) => row[col[name]];
+      const conds = [
+        ["Uptrend (EMA50 > EMA200)", g(last, "ema50") > g(last, "ema200")],
+        ["Momentum (MACD > signal)", g(last, "macd") > g(last, "macdsignal")],
+        [`Pullback (RSI ${fmt(g(last, "rsi"), 0)} < ${RSI_ENTRY})`, g(last, "rsi") < RSI_ENTRY],
+        ["RSI turning up", g(last, "rsi") > g(prev, "rsi")],
+        ["Volume above average", g(last, "volume") > g(last, "volume_mean20")],
+      ];
+      const met = conds.filter((c) => c[1]).length;
+      return `<div class="pair">
+        <div class="head"><span class="name">${pair}</span>
+        <span class="score ${met === 5 ? "ready" : ""}">${met === 5 ? "ENTRY SIGNAL" : met + " / 5"}</span></div>
+        ${conds.map(([label, ok]) =>
+          `<div class="cond ${ok ? "met" : ""}"><span class="mark">${ok ? "✓" : "·"}</span>${label}</div>`).join("")}
+      </div>`;
+    } catch {
+      return `<div class="pair"><div class="head"><span class="name">${pair}</span><span class="score">no data</span></div></div>`;
+    }
+  }));
+  el.innerHTML = cards.join("");
+}
+
+function tradeTable(el, trades, open) {
+  if (!trades.length) { el.innerHTML = '<div class="empty">' + (open ? "none — waiting for an entry signal" : "none yet") + "</div>"; return; }
+  const rows = trades.map((t) => {
+    const pct = open ? t.profit_pct : t.close_profit_pct ?? t.profit_pct;
+    const abs = open ? t.profit_abs : t.close_profit_abs ?? t.profit_abs;
+    const when = (open ? t.open_date : t.close_date ?? t.open_date ?? "").slice(0, 16);
+    return `<tr><td>${t.pair}</td><td>${when}</td>
+      <td class="num">${fmt(t.open_rate, 4)}</td>
+      <td class="num">${open ? fmt(t.current_rate, 4) : fmt(t.close_rate ?? 0, 4)}</td>
+      <td class="num ${cls(pct)}">${sign(pct)}${fmt(pct)}%</td>
+      <td class="num ${cls(abs)}">${sign(abs)}${fmt(abs)}</td>
+      <td>${open ? "open" : t.exit_reason ?? ""}</td></tr>`;
+  }).join("");
+  el.innerHTML = `<table><thead><tr><th>Pair</th><th>${open ? "Opened" : "Closed"}</th>
+    <th class="num">Entry</th><th class="num">${open ? "Now" : "Exit"}</th>
+    <th class="num">P/L %</th><th class="num">P/L USDT</th><th>${open ? "Status" : "Reason"}</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+async function refresh() {
+  const err = document.getElementById("err");
+  try {
+    if (!token) await login();
+    const [balance, profit, statusList, trades, whitelist] = await Promise.all([
+      get("/balance"), get("/profit"), get("/status"), get("/trades?limit=15"), get("/whitelist"),
+    ]);
+    tiles(balance, profit, statusList);
+    tradeTable(document.getElementById("open-trades"), statusList, true);
+    tradeTable(document.getElementById("closed-trades"),
+      (trades.trades ?? []).filter((t) => !t.is_open).reverse(), false);
+    chart(await get("/daily?timespan=90"));
+    await pairPanel(whitelist.whitelist ?? []);
+    document.getElementById("status").innerHTML =
+      '<span class="dot on"></span>live &middot; updated ' + new Date().toLocaleTimeString();
+    err.style.display = "none";
+  } catch (e) {
+    err.textContent = "⚠ " + e.message + " — is the bot running? (docker compose up -d)";
+    err.style.display = "block";
+    document.getElementById("status").innerHTML = '<span class="dot off"></span>disconnected';
+  }
+}
+
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>

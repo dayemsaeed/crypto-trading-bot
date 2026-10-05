@@ -1,0 +1,31 @@
+{
+  "strategy_name": "TrendFollowStrategy",
+  "params": {
+    "roi": {
+      "0": 0.15,
+      "1440": 0.08,
+      "4320": 0.04,
+      "8640": 0.02
+    },
+    "stoploss": {
+      "stoploss": -0.08
+    },
+    "trailing": {
+      "trailing_stop": true,
+      "trailing_stop_positive": 0.02,
+      "trailing_stop_positive_offset": 0.05,
+      "trailing_only_offset_is_reached": true
+    },
+    "max_open_trades": {
+      "max_open_trades": 4
+    },
+    "buy": {
+      "rsi_entry": 49
+    },
+    "sell": {
+      "rsi_exit": 78
+    }
+  },
+  "ft_stratparam_v": 1,
+  "export_time": "2026-07-04 17:41:36.492492+00:00"
+}
